@@ -6,30 +6,52 @@ type CommandHistory = {
   timestamp: string;
 };
 
-const TERMINAL_STORAGE_KEY = 'ucagent-agent-terminal-history';
+const TERMINAL_STORAGE_KEY = 'ucagent-terminal-history';
 
 const AgentTerminal = () => {
   const [output, setOutput] = useState<string>('');
   const [inputValue, setInputValue] = useState<string>('');
-  const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
+  const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
   const [commandHistory, setCommandHistory] = useState<CommandHistory[]>([]);
-  const [currentPrompt, setCurrentPrompt] = useState<string>('user@ucagent:~$ ');
+  const [currentPrompt, setCurrentPrompt] = useState<string>('(UnityChip) ');
   const terminalRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimeoutRef = useRef<number | null>(null); // Use number for browser compatibility
+  const reconnectAttemptsRef = useRef<number>(0);
+  const maxReconnectAttempts = 5;
+  const connectionStatusRef = useRef(connectionStatus); // Track connection status in a ref
+
+  // Update the ref whenever connectionStatus changes
+  useEffect(() => {
+    connectionStatusRef.current = connectionStatus;
+  }, [connectionStatus]);
+
+  // Reset reconnect attempts when manually connecting
+  const resetReconnectAttempts = () => {
+    reconnectAttemptsRef.current = 0;
+  };
 
   // Function to connect to WebSocket
   const connectWebSocket = () => {
+    if (wsRef.current) {
+      // Close existing connection if any
+      wsRef.current.close();
+    }
+
     setConnectionStatus('connecting');
 
     try {
-      // Connect to WebSocket server
+      // Connect to PTY WebSocket server on port 8080
+      console.log('Attempting to connect to WebSocket at ws://127.0.0.1:8080');
       const ws = new WebSocket('ws://127.0.0.1:8080');
 
       ws.onopen = () => {
+        console.log('PTY WebSocket connected successfully');
         setConnectionStatus('connected');
-        setCurrentPrompt('user@ucagent:~$ ');
-        setOutput(prev => prev + 'Connected to Agent terminal.\nType commands to interact with the Agent.\n\n');
+        setCurrentPrompt('(UnityChip) ');
+        setOutput(prev => prev + 'Connected to UCAgent terminal via PTY.\nType commands to interact with the Agent.\n\n');
+        resetReconnectAttempts(); // Reset reconnect attempts on successful connection
       };
 
       ws.onmessage = (event) => {
@@ -53,40 +75,106 @@ const AgentTerminal = () => {
                 break;
               default:
                 // Unknown message type, treat as raw output
-                setOutput(prev => prev + event.data);
+                setOutput(prev => prev + JSON.stringify(data) + '\n');
             }
           } else {
             // Raw string message
-            setOutput(prev => prev + event.data);
+            setOutput(prev => prev + event.data + '\n');
           }
         } catch (e) {
           // If parsing fails, treat as raw string
-          setOutput(prev => prev + event.data);
+          setOutput(prev => prev + event.data + '\n');
         }
       };
 
       ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        setConnectionStatus('disconnected');
+        console.error('PTY WebSocket error:', error);
+        setConnectionStatus('error');
+        // Convert error event to string for better debugging
+        setOutput(prev => prev + `[ERROR] WebSocket connection error: ${error instanceof Event ? 'WebSocket error occurred' : String(error)}\n`);
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
+        console.log('PTY WebSocket disconnected:', event.code, event.reason);
         setConnectionStatus('disconnected');
-        setOutput(prev => prev + 'Disconnected from Agent terminal.\n');
+        setOutput(prev => prev + `Disconnected from Agent terminal. Code: ${event.code}, Reason: "${event.reason}"\n`);
+
+        // Attempt to reconnect if not manually disconnected (1000 = normal closure)
+        if (event.code !== 1000) {
+          // Check if we haven't exceeded max attempts
+          if (reconnectAttemptsRef.current < maxReconnectAttempts) {
+            // Increment attempts before scheduling the next connection
+            reconnectAttemptsRef.current++;
+            const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current - 1), 10000); // Exponential backoff, max 10s
+
+            setOutput(prev => prev + `Attempting to reconnect... (attempt ${reconnectAttemptsRef.current}/${maxReconnectAttempts})\n`);
+
+            // Clear any existing timeout to prevent multiple timers
+            if (reconnectTimeoutRef.current) {
+              clearTimeout(reconnectTimeoutRef.current);
+            }
+
+            // Schedule reconnection with exponential backoff
+            reconnectTimeoutRef.current = window.setTimeout(() => {
+              // Only attempt reconnection if we're still in disconnected state
+              if (connectionStatusRef.current !== 'connected') {
+                connectWebSocket();
+              }
+            }, delay);
+
+            console.log(`Scheduled reconnection attempt ${reconnectAttemptsRef.current} in ${delay}ms`);
+          } else {
+            setOutput(prev => prev + `Max reconnection attempts reached (${maxReconnectAttempts}). Please manually reconnect.\n`);
+            console.log('Max reconnection attempts reached, stopping automatic reconnection.');
+          }
+        } else {
+          console.log('Connection closed normally, not attempting to reconnect.');
+        }
       };
 
       wsRef.current = ws;
     } catch (error) {
-      console.error('Failed to connect to WebSocket:', error);
+      console.error('Failed to connect to PTY WebSocket:', error);
       setConnectionStatus('disconnected');
       setOutput(prev => prev + `Connection failed: ${(error as Error).message}\n`);
+      // Check if we haven't exceeded max attempts
+      if (reconnectAttemptsRef.current < maxReconnectAttempts) {
+        // Increment attempts before scheduling the next connection
+        reconnectAttemptsRef.current++;
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current - 1), 10000); // Exponential backoff, max 10s
+
+        setOutput(prev => prev + `Connection failed, attempting to reconnect... (attempt ${reconnectAttemptsRef.current}/${maxReconnectAttempts})\n`);
+
+        // Clear any existing timeout to prevent multiple timers
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+        }
+
+        // Schedule reconnection with exponential backoff
+        reconnectTimeoutRef.current = window.setTimeout(() => {
+          // Only attempt reconnection if we're still in disconnected state
+          if (connectionStatusRef.current !== 'connected') {
+            connectWebSocket();
+          }
+        }, delay);
+
+        console.log(`Scheduled reconnection attempt ${reconnectAttemptsRef.current} in ${delay}ms`);
+      } else {
+        setOutput(prev => prev + `Max reconnection attempts reached (${maxReconnectAttempts}). Please manually reconnect.\n`);
+        console.log('Max reconnection attempts reached, stopping automatic reconnection.');
+      }
     }
   };
 
   // Function to disconnect from WebSocket
   const disconnectWebSocket = () => {
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+
     if (wsRef.current) {
-      wsRef.current.close();
+      wsRef.current.close(1000, "Manual disconnect"); // 1000 means normal closure
       wsRef.current = null;
       setConnectionStatus('disconnected');
       setOutput(prev => prev + 'Disconnected from Agent terminal.\n');
@@ -100,7 +188,7 @@ const AgentTerminal = () => {
       try {
         setCommandHistory(JSON.parse(savedHistory));
       } catch (error) {
-        console.error('Failed to parse saved command history:', error);
+        console.error('Failed to parse saved Agent command history:', error);
         setCommandHistory([]);
       }
     }
@@ -212,10 +300,14 @@ const AgentTerminal = () => {
   useEffect(() => {
     connectWebSocket();
 
-    // Cleanup function to close WebSocket connection when component unmounts
+    // Cleanup function to close WebSocket connection and clear timeouts when component unmounts
     return () => {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+
       if (wsRef.current) {
-        wsRef.current.close();
+        wsRef.current.close(1000, "Component unmount"); // 1000 means normal closure
       }
     };
   }, []);
@@ -235,16 +327,20 @@ const AgentTerminal = () => {
   return (
     <div className="flex flex-col h-full w-full bg-gray-900 text-green-400 font-mono text-sm p-4 rounded-lg border border-gray-700">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-2">
-        <h2 className="text-lg font-bold text-white">Agent Terminal</h2>
+        <h2 className="text-lg font-bold text-white">
+          Agent Terminal
+        </h2>
         <div className="flex flex-wrap gap-2">
           <div className="flex items-center">
             <div className={`w-3 h-3 rounded-full mr-2 ${
               connectionStatus === 'connected' ? 'bg-green-500' :
-              connectionStatus === 'connecting' ? 'bg-yellow-500' : 'bg-red-500'
+              connectionStatus === 'connecting' ? 'bg-yellow-500' :
+              connectionStatus === 'error' ? 'bg-orange-500' : 'bg-red-500'
             }`}></div>
             <span className="text-xs">
               {connectionStatus === 'connected' ? 'Connected' :
-               connectionStatus === 'connecting' ? 'Connecting...' : 'Disconnected'}
+               connectionStatus === 'connecting' ? 'Connecting...' :
+               connectionStatus === 'error' ? 'Error' : 'Disconnected'}
             </span>
           </div>
           <button
@@ -281,13 +377,14 @@ const AgentTerminal = () => {
               autoComplete="off"
               spellCheck="false"
               placeholder="Type a command..."
+              disabled={connectionStatus !== 'connected'}
             />
           </div>
         </pre>
       </div>
 
       <div className="text-xs text-gray-500 mt-2">
-        Note: This terminal connects directly to the Agent terminal via WebSocket.
+        Note: This terminal connects to UCAgent via PTY WebSocket on port 8080.
         Enter commands to interact with the Agent. Try 'help', 'ls', or 'clear'.
       </div>
     </div>

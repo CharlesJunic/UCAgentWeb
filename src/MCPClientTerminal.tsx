@@ -457,7 +457,7 @@ const MCPClientTerminal = () => {
 
       <div className="text-xs text-gray-500 mt-2">
         Note: This terminal connects to the Agent via the MCP client running on port 8000.
-        Enter commands to interact with available tools. Try 'help', 'ls', 'resources', 'get_resource', 'notify', or 'clear'.
+        Enter commands to interact with available tools. Try 'help', 'ls', 'resources', 'get_resource', or 'clear'.
       </div>
     </div>
   );

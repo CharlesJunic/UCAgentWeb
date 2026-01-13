@@ -1,5 +1,5 @@
 # Makefile for UCAgentWeb Development Environment
-.PHONY: all clone-agent setup-agent start-agent start-mcp-client start-ws start-web stop clean clean-agent dev dev%
+.PHONY: all clone-agent setup-agent start-agent start-mcp-client start-ws start-ws% start-web stop clean clean-agent dev dev%
 
 # Configuration - Using relative paths for portability
 UCAGENT_DIR = ../UCAgent
@@ -54,13 +54,7 @@ start-agent%: setup-agent
 			echo "ERROR: UCAgent directory does not exist or is not properly set up"; \
 			exit 1; \
 		fi; \
-		PIPE_DIR="$(OUTPUT_DIR)/pipes"; \
 		LOG_FILE="$(OUTPUT_DIR)/agent.log"; \
-		mkdir -p $$PIPE_DIR; \
-		rm -f $$PIPE_DIR/agent_input_pipe $$PIPE_DIR/agent_output_pipe; \
-		[ -e $$PIPE_DIR/agent_input_pipe ] || mkfifo $$PIPE_DIR/agent_input_pipe; \
-		[ -e $$PIPE_DIR/agent_output_pipe ] || mkfifo $$PIPE_DIR/agent_output_pipe; \
-		chmod 666 $$PIPE_DIR/agent_input_pipe $$PIPE_DIR/agent_output_pipe; \
 		\
 		# Start the UCAgent process in the background \
 		( \
@@ -80,23 +74,6 @@ start-agent%: setup-agent
 				exit 1; \
 			fi; \
 		) & \
-		AGENT_BG_PID=$$!; \
-		\
-		# Start a separate process to handle pipe communication if needed \
-		( \
-			# Continuously monitor the input pipe and forward to the agent if needed \
-			while [ -p "$$PIPE_DIR/agent_input_pipe" ]; do \
-				if [ -s "$$PIPE_DIR/agent_input_pipe" ]; then \
-					# This is where we'd handle pipe communication if needed \
-					# For now, just read and discard to prevent blocking \
-					# In a real implementation, this would forward to the agent \
-					: > $$PIPE_DIR/agent_input_pipe; \
-				fi; \
-				sleep 1; \
-			done \
-		) & \
-		PIPE_MONITOR_PID=$$!; \
-		\
 		# Wait for background processes to start \
 		sleep 5; \
 		# Cleanup temporary file in main process to ensure it's removed \
@@ -134,7 +111,7 @@ start-mcp-client:
 
 # Start terminal WebSocket service
 start-ws:
-	@echo "Starting terminal WebSocket service on port 8080..."
+	@echo "Starting terminal WebSocket service on port 8080 for default target: Adder";
 	@if [ -f $(WS_PID_FILE) ] && kill -0 $$(cat $(WS_PID_FILE)) 2>/dev/null; then \
 		echo "WebSocket service is already running (PID: $$(cat $(WS_PID_FILE))). Skipping start."; \
 	else \
@@ -142,7 +119,30 @@ start-ws:
 			echo "ERROR: websocket_server.py not found in current directory"; \
 			exit 1; \
 		fi; \
-		cd $(CURRENT_DIR) && nohup python websocket_server.py > $(OUTPUT_DIR)/ws.log 2>&1 & echo $$! > $(WS_PID_FILE); \
+		cd $(CURRENT_DIR) && nohup python websocket_server.py $$TARGET > $(OUTPUT_DIR)/ws.log 2>&1 & echo $$! > $(WS_PID_FILE); \
+		if [ $$! -gt 0 ]; then \
+			echo "WebSocket service started with PID: $$(cat $(WS_PID_FILE))"; \
+		else \
+			echo "Failed to start terminal WebSocket service"; \
+			exit 1; \
+		fi; \
+	fi
+	@sleep 3
+
+start-ws%:
+	@TARGET=$(patsubst start-ws%,%,$@); \
+	if [ "$$TARGET" = "" ]; then \
+		TARGET=Adder; \
+	fi; \
+	echo "Starting terminal WebSocket service on port 8080 for target: $$TARGET";
+	@if [ -f $(WS_PID_FILE) ] && kill -0 $$(cat $(WS_PID_FILE)) 2>/dev/null; then \
+		echo "WebSocket service is already running (PID: $$(cat $(WS_PID_FILE))). Skipping start."; \
+	else \
+		if [ ! -f "$(CURRENT_DIR)/websocket_server.py" ]; then \
+			echo "ERROR: websocket_server.py not found in current directory"; \
+			exit 1; \
+		fi; \
+		cd $(CURRENT_DIR) && nohup python websocket_server.py $$TARGET > $(OUTPUT_DIR)/ws.log 2>&1 & echo $$! > $(WS_PID_FILE); \
 		if [ $$! -gt 0 ]; then \
 			echo "WebSocket service started with PID: $$(cat $(WS_PID_FILE))"; \
 		else \
@@ -301,8 +301,8 @@ clean-agent:
 
 # Parameterized dev target to start services with specific agent target
 dev: stop
-	echo "Starting development environment with agent target: $$TARGET"; \
-	make start-agentAdder start-mcp-client start-ws start-web
+	@echo "Starting development environment with default agent target: Adder"; \
+	make start-mcp-client start-wsAdder start-web
 	@echo "Waiting for services to start..."
 	@sleep 5
 	@echo "All services started:"
@@ -322,7 +322,7 @@ dev%: stop
 		TARGET=Adder; \
 	fi; \
 	echo "Starting development environment with agent target: $$TARGET"; \
-	make start-agent$$TARGET start-mcp-client start-ws start-web
+	make start-mcp-client start-ws$$TARGET start-web
 	@echo "Waiting for services to start..."
 	@sleep 5
 	@echo "All services started:"
