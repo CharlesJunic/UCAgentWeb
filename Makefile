@@ -1,5 +1,5 @@
 # Makefile for UCAgentWeb Development Environment
-.PHONY: all clone-agent setup-agent start-agent start-mcp-client start-terminal-ws start-web stop clean clean-agent dev%
+.PHONY: all clone-agent setup-agent start-agent start-mcp-client start-ws start-web stop clean clean-agent dev dev%
 
 # Configuration - Using relative paths for portability
 UCAGENT_DIR = ../UCAgent
@@ -16,7 +16,7 @@ $(shell mkdir -p $(OUTPUT_DIR))
 # PID files
 AGENT_PID_FILE = $(OUTPUT_DIR)/.agent.pid
 MCP_CLIENT_PID_FILE = $(OUTPUT_DIR)/.mcp_client.pid
-TERMINAL_WS_PID_FILE = $(OUTPUT_DIR)/.terminal_ws.pid
+WS_PID_FILE = $(OUTPUT_DIR)/.ws.pid
 WEB_PID_FILE = $(OUTPUT_DIR)/.web.pid
 
 all: dev
@@ -54,21 +54,54 @@ start-agent%: setup-agent
 			echo "ERROR: UCAgent directory does not exist or is not properly set up"; \
 			exit 1; \
 		fi; \
-		cd $(UCAGENT_DIR) && nohup make mcp_$${TARGET} $${ARGS} > $(OUTPUT_DIR)/agent.log 2>&1 & \
-		AGENT_PID=$$!; \
-		echo $$AGENT_PID > $(AGENT_PID_FILE); \
-		sleep 2; \
-		if kill -0 $$AGENT_PID 2>/dev/null; then \
-			echo "UCAgent service started with PID: $$AGENT_PID"; \
-		else \
-			echo "Failed to start UCAgent service"; \
-			exit 1; \
-		fi; \
-	fi; \
-	sleep 5
-
-# Legacy start-agent target for backward compatibility
-start-agent: start-agentAdder
+		PIPE_DIR="$(OUTPUT_DIR)/pipes"; \
+		LOG_FILE="$(OUTPUT_DIR)/agent.log"; \
+		mkdir -p $$PIPE_DIR; \
+		rm -f $$PIPE_DIR/agent_input_pipe $$PIPE_DIR/agent_output_pipe; \
+		[ -e $$PIPE_DIR/agent_input_pipe ] || mkfifo $$PIPE_DIR/agent_input_pipe; \
+		[ -e $$PIPE_DIR/agent_output_pipe ] || mkfifo $$PIPE_DIR/agent_output_pipe; \
+		chmod 666 $$PIPE_DIR/agent_input_pipe $$PIPE_DIR/agent_output_pipe; \
+		\
+		# Start the UCAgent process in the background \
+		( \
+			cd $(UCAGENT_DIR) && \
+			sed '/^mcp_%: init_%/,/^$$/ s/--tui //' Makefile > Makefile.tmp && \
+			stdbuf -oL -eL make -f Makefile.tmp mcp_$${TARGET} $${ARGS} > $$LOG_FILE 2>&1 & \
+			sleep 5; \
+			\
+			AGENT_PID=$$(pgrep -f "python.*ucagent.py.*$${TARGET}" | head -n1); \
+			\
+			if [ -n "$$AGENT_PID" ] && kill -0 $$AGENT_PID 2>/dev/null; then \
+				echo "UCAgent service started with PID: $$AGENT_PID"; \
+				echo $$AGENT_PID > $(AGENT_PID_FILE); \
+				(while kill -0 $$AGENT_PID 2>/dev/null; do sleep 2; done; rm -f $(AGENT_PID_FILE);) & \
+			else \
+				echo "Failed to start UCAgent service"; \
+				exit 1; \
+			fi; \
+		) & \
+		AGENT_BG_PID=$$!; \
+		\
+		# Start a separate process to handle pipe communication if needed \
+		( \
+			# Continuously monitor the input pipe and forward to the agent if needed \
+			while [ -p "$$PIPE_DIR/agent_input_pipe" ]; do \
+				if [ -s "$$PIPE_DIR/agent_input_pipe" ]; then \
+					# This is where we'd handle pipe communication if needed \
+					# For now, just read and discard to prevent blocking \
+					# In a real implementation, this would forward to the agent \
+					: > $$PIPE_DIR/agent_input_pipe; \
+				fi; \
+				sleep 1; \
+			done \
+		) & \
+		PIPE_MONITOR_PID=$$!; \
+		\
+		# Wait for background processes to start \
+		sleep 5; \
+		# Cleanup temporary file in main process to ensure it's removed \
+		( sleep 5; cd $(UCAGENT_DIR) 2>/dev/null && rm -f Makefile.tmp ) & \
+	fi
 
 # Forward targets to UCAgent directory - allows running UCAgent commands from this directory
 ua-%:
@@ -100,18 +133,18 @@ start-mcp-client:
 	@sleep 3
 
 # Start terminal WebSocket service
-start-terminal-ws:
+start-ws:
 	@echo "Starting terminal WebSocket service on port 8080..."
-	@if [ -f $(TERMINAL_WS_PID_FILE) ] && kill -0 $$(cat $(TERMINAL_WS_PID_FILE)) 2>/dev/null; then \
-		echo "Terminal WebSocket service is already running (PID: $$(cat $(TERMINAL_WS_PID_FILE))). Skipping start."; \
+	@if [ -f $(WS_PID_FILE) ] && kill -0 $$(cat $(WS_PID_FILE)) 2>/dev/null; then \
+		echo "WebSocket service is already running (PID: $$(cat $(WS_PID_FILE))). Skipping start."; \
 	else \
-		if [ ! -f "$(CURRENT_DIR)/terminal_websocket_server.py" ]; then \
-			echo "ERROR: terminal_websocket_server.py not found in current directory"; \
+		if [ ! -f "$(CURRENT_DIR)/websocket_server.py" ]; then \
+			echo "ERROR: websocket_server.py not found in current directory"; \
 			exit 1; \
 		fi; \
-		cd $(CURRENT_DIR) && nohup python terminal_websocket_server.py > $(OUTPUT_DIR)/terminal_ws.log 2>&1 & echo $$! > $(TERMINAL_WS_PID_FILE); \
+		cd $(CURRENT_DIR) && nohup python websocket_server.py > $(OUTPUT_DIR)/ws.log 2>&1 & echo $$! > $(WS_PID_FILE); \
 		if [ $$! -gt 0 ]; then \
-			echo "Terminal WebSocket service started with PID: $$(cat $(TERMINAL_WS_PID_FILE))"; \
+			echo "WebSocket service started with PID: $$(cat $(WS_PID_FILE))"; \
 		else \
 			echo "Failed to start terminal WebSocket service"; \
 			exit 1; \
@@ -177,10 +210,10 @@ check-running:
 	else \
 		echo "[STOPPED] MCP client service (Port: 8000)"; \
 	fi
-	@if [ -f $(TERMINAL_WS_PID_FILE) ] && [ -n "$$(cat $(TERMINAL_WS_PID_FILE) 2>/dev/null)" ] && kill -0 $$(cat $(TERMINAL_WS_PID_FILE)) 2>/dev/null; then \
-		echo "[RUNNING] Terminal WebSocket service (PID: $$(cat $(TERMINAL_WS_PID_FILE)), Port: 8080)"; \
+	@if [ -f $(WS_PID_FILE) ] && [ -n "$$(cat $(WS_PID_FILE) 2>/dev/null)" ] && kill -0 $$(cat $(WS_PID_FILE)) 2>/dev/null; then \
+		echo "[RUNNING] WebSocket service (PID: $$(cat $(WS_PID_FILE)), Port: 8080)"; \
 	else \
-		echo "[STOPPED] Terminal WebSocket service (Port: 8080)"; \
+		echo "[STOPPED] WebSocket service (Port: 8080)"; \
 	fi
 	@if [ -f $(WEB_PID_FILE) ] && [ -n "$$(cat $(WEB_PID_FILE) 2>/dev/null)" ] && kill -0 $$(cat $(WEB_PID_FILE)) 2>/dev/null; then \
 		echo "[RUNNING] Web service (PID: $$(cat $(WEB_PID_FILE)), Port: 5173)"; \
@@ -207,13 +240,13 @@ stop:
 		echo "[INFO] MCP client service was not running"; \
 		rm -f $(MCP_CLIENT_PID_FILE); \
 	fi
-	@if [ -f $(TERMINAL_WS_PID_FILE) ] && [ -n "$$(cat $(TERMINAL_WS_PID_FILE) 2>/dev/null)" ] && kill -0 $$(cat $(TERMINAL_WS_PID_FILE)) 2>/dev/null; then \
-		kill $$(cat $(TERMINAL_WS_PID_FILE)); \
-		rm -f $(TERMINAL_WS_PID_FILE); \
-		echo "[SUCCESS] Terminal WebSocket service stopped"; \
+	@if [ -f $(WS_PID_FILE) ] && [ -n "$$(cat $(WS_PID_FILE) 2>/dev/null)" ] && kill -0 $$(cat $(WS_PID_FILE)) 2>/dev/null; then \
+		kill $$(cat $(WS_PID_FILE)); \
+		rm -f $(WS_PID_FILE); \
+		echo "[SUCCESS] WebSocket service stopped"; \
 	else \
-		echo "[INFO] Terminal WebSocket service was not running"; \
-		rm -f $(TERMINAL_WS_PID_FILE); \
+		echo "[INFO] WebSocket service was not running"; \
+		rm -f $(WS_PID_FILE); \
 	fi
 	@if [ -f $(WEB_PID_FILE) ] && [ -n "$$(cat $(WEB_PID_FILE) 2>/dev/null)" ] && kill -0 $$(cat $(WEB_PID_FILE)) 2>/dev/null; then \
 		kill $$(cat $(WEB_PID_FILE)); \
@@ -230,7 +263,7 @@ stop:
 	@make clean
 
 # Force stop all services and cleanup any remaining processes
-force-stop:
+force-stop: clean
 	@echo "Force stopping all services and cleaning up remaining processes..."
 	@-pkill -f "$(PNPM_CMD).*dev" 2>/dev/null
 	@-pkill -f "vite" 2>/dev/null
@@ -238,14 +271,23 @@ force-stop:
 	@-pkill -f "mcp-client.py" 2>/dev/null
 	@-pkill -f "make mcp_Adder" 2>/dev/null
 	@-pkill -f "python.*ucagent" 2>/dev/null
-	@-pkill -f "terminal_websocket_server.py" 2>/dev/null
-	@rm -f $(AGENT_PID_FILE) $(MCP_CLIENT_PID_FILE) $(TERMINAL_WS_PID_FILE) $(WEB_PID_FILE)
+	@-pkill -f "websocket_server.py" 2>/dev/null
+	@-lsof -ti:8000 | xargs kill -9 2>/dev/null || true
+	@-lsof -ti:8080 | xargs kill -9 2>/dev/null || true
+	@-lsof -ti:5000 | xargs kill -9 2>/dev/null || true
+	@-lsof -ti:5173 | xargs kill -9 2>/dev/null || true
+	@-fuser -k 8000/tcp 2>/dev/null || true
+	@-fuser -k 8080/tcp 2>/dev/null || true
+	@-fuser -k 5000/tcp 2>/dev/null || true
+	@-fuser -k 5173/tcp 2>/dev/null || true
 	@echo "Force cleanup completed."
 
 # Clean up
 clean:
-	@rm -f $(AGENT_PID_FILE) $(MCP_CLIENT_PID_FILE) $(TERMINAL_WS_PID_FILE) $(WEB_PID_FILE)
-	@rm -f $(OUTPUT_DIR)/agent.log $(OUTPUT_DIR)/mcp_client.log $(OUTPUT_DIR)/terminal_ws.log $(OUTPUT_DIR)/web.log
+	@rm -f $(AGENT_PID_FILE) $(MCP_CLIENT_PID_FILE) $(WS_PID_FILE) $(WEB_PID_FILE)
+	@rm -f $(OUTPUT_DIR)/agent.log $(OUTPUT_DIR)/mcp_client.log $(OUTPUT_DIR)/ws.log $(OUTPUT_DIR)/web.log
+	@rm -rf $(OUTPUT_DIR)/pipes
+	@rm -f $(UCAGENT_DIR)/Makefile.tmp
 	@rm -rf dist
 	@find . -type d -name "__pycache__" -exec rm -rf {} +
 	@find . -type f -name "*.pyc" -delete
@@ -258,25 +300,41 @@ clean-agent:
 	@rm -rf $(UCAGENT_DIR)
 
 # Parameterized dev target to start services with specific agent target
+dev: stop
+	echo "Starting development environment with agent target: $$TARGET"; \
+	make start-agentAdder start-mcp-client start-ws start-web
+	@echo "Waiting for services to start..."
+	@sleep 5
+	@echo "All services started:"
+	@echo "- UCAgent (port 5000): Check $(UCAGENT_DIR) directory"
+	@echo "- MCP Client (port 8000): Running in $(CURRENT_DIR)"
+	@echo "- WebSocket (port 8080): Running in $(CURRENT_DIR)"
+	@echo "- Web Interface (port 5173): Running in $(CURRENT_DIR)"
+	@echo ""
+	@echo "Access the web interface at: http://127.0.0.1:5173"
+	@echo ""
+	@echo "To stop all services, run: make stop"
+	@$(MAKE) status
+
 dev%: stop
 	@TARGET=$(patsubst dev%,%,$@); \
 	if [ "$$TARGET" = "" ]; then \
 		TARGET=Adder; \
 	fi; \
 	echo "Starting development environment with agent target: $$TARGET"; \
-	make start-agent$$TARGET start-mcp-client start-terminal-ws start-web
+	make start-agent$$TARGET start-mcp-client start-ws start-web
 	@echo "Waiting for services to start..."
 	@sleep 5
 	@echo "All services started:"
 	@echo "- UCAgent (port 5000): Check $(UCAGENT_DIR) directory"
 	@echo "- MCP Client (port 8000): Running in $(CURRENT_DIR)"
-	@echo "- Terminal WebSocket (port 8080): Running in $(CURRENT_DIR)"
+	@echo "- WebSocket (port 8080): Running in $(CURRENT_DIR)"
 	@echo "- Web Interface (port 5173): Running in $(CURRENT_DIR)"
 	@echo ""
 	@echo "Access the web interface at: http://127.0.0.1:5173"
 	@echo ""
 	@echo "To stop all services, run: make stop"
-	@make status
+	@$(MAKE) status
 
 # Show status
 status: check-running

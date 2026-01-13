@@ -33,8 +33,36 @@ const AgentTerminal = () => {
       };
 
       ws.onmessage = (event) => {
-        const data = event.data;
-        setOutput(prev => prev + data);
+        try {
+          // Try to parse the message as JSON to handle different message types
+          const data = JSON.parse(event.data);
+
+          if (typeof data === 'object' && data.type) {
+            switch (data.type) {
+              case 'output':
+                setOutput(prev => prev + data.data);
+                break;
+              case 'echo':
+                setOutput(prev => prev + data.data);
+                break;
+              case 'error':
+                setOutput(prev => prev + `[ERROR] ${data.data}\n`);
+                break;
+              case 'pong':
+                // Ping/pong response - no action needed
+                break;
+              default:
+                // Unknown message type, treat as raw output
+                setOutput(prev => prev + event.data);
+            }
+          } else {
+            // Raw string message
+            setOutput(prev => prev + event.data);
+          }
+        } catch (e) {
+          // If parsing fails, treat as raw string
+          setOutput(prev => prev + event.data);
+        }
       };
 
       ws.onerror = (error) => {
@@ -93,7 +121,8 @@ const AgentTerminal = () => {
 
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       // Send command to the Agent terminal via WebSocket
-      wsRef.current.send(command);
+      const message = JSON.stringify({ type: 'input', data: command });
+      wsRef.current.send(message);
     } else {
       setOutput(prev => prev + 'Not connected to Agent terminal.\n');
     }
