@@ -302,9 +302,10 @@ clean-agent:
 # Parameterized dev target to start services with specific agent target
 dev: stop
 	@echo "Starting development environment with default agent target: Adder"; \
-	make start-mcp-client start-wsAdder start-web
+	make start-wsAdder
 	@echo "Waiting for services to start..."
 	@sleep 5
+	@make start-mcp-client start-web
 	@echo "All services started:"
 	@echo "- UCAgent (port 5000): Check $(UCAGENT_DIR) directory"
 	@echo "- MCP Client (port 8000): Running in $(CURRENT_DIR)"
@@ -322,9 +323,10 @@ dev%: stop
 		TARGET=Adder; \
 	fi; \
 	echo "Starting development environment with agent target: $$TARGET"; \
-	make start-mcp-client start-ws$$TARGET start-web
-	@echo "Waiting for services to start..."
+	make start-ws$$TARGET
+	@echo "Waiting for web service to start..."
 	@sleep 5
+	@make start-mcp-client start-web
 	@echo "All services started:"
 	@echo "- UCAgent (port 5000): Check $(UCAGENT_DIR) directory"
 	@echo "- MCP Client (port 8000): Running in $(CURRENT_DIR)"
