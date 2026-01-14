@@ -56,6 +56,7 @@ Makefile 编排整个开发环境，便于一起启动所有服务进行开发�
 
 - **浏览器**：Chrome 90+, Firefox 88+, Safari 14+, Edge 90+
 - **Node.js**：18.x 或更高版本
+- **Python**：3.8 或更高版本
 - **内存**：建议 4GB 可用内存
 - **网络**：需要连接到 UCAgent 后端服务
 
@@ -67,17 +68,22 @@ Makefile 编排整个开发环境，便于一起启动所有服务进行开发�
    cd UCAgentWeb
    ```
 
-2. 安装依赖：
+2. 安装 Node.js 依赖：
    ```bash
    pnpm install
    ```
 
-3. 启动开发服务器：
+3. 安装 Python 依赖：
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. 启动开发服务器：
    ```bash
    pnpm dev
    ```
 
-4. 访问 `http://localhost:5173` 查看应用
+5. 访问 `http://localhost:5173` 查看应用
 
 ### 生产环境构建
 

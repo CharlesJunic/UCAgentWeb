@@ -56,6 +56,7 @@ The Makefile orchestrates the entire development environment, making it easy to 
 
 - **Browser**: Chrome 90+, Firefox 88+, Safari 14+, Edge 90+
 - **Node.js**: 18.x or higher
+- **Python**: 3.8 or higher
 - **Memory**: 4GB+ recommended
 - **Network**: Connection to UCAgent backend services required
 
@@ -67,17 +68,22 @@ The Makefile orchestrates the entire development environment, making it easy to 
    cd UCAgentWeb
    ```
 
-2. Install dependencies:
+2. Install Node.js dependencies:
    ```bash
    pnpm install
    ```
 
-3. Start the development server:
+3. Install Python dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. Start the development server:
    ```bash
    pnpm dev
    ```
 
-4. Visit `http://localhost:5173` to view the application
+5. Visit `http://localhost:5173` to view the application
 
 ### Production Build
 
