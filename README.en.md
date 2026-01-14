@@ -4,7 +4,7 @@
 
 [English](README.en.md) | **[中文](README.zh.md)**
 
-[![License](https://img.shields.io/github/license/XS-MLVP/UCAgentWeb)](LICENSE)
+[![License](https://img.shields.io/github/license/CharlesJunic/UCAgentWeb)](LICENSE)
 [![Made with React](https://img.shields.io/badge/Made%20with-React-blue.svg)](https://reactjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-4.9%2B-blue.svg)](https://www.typescriptlang.org/)
 
