@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 interface Stage {
   index: number;
@@ -29,6 +29,7 @@ const AgentStatusPage = () => {
   const [status, setStatus] = useState<AgentStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [lastFetchTime, setLastFetchTime] = useState<number | null>(null);
 
   // Function to extract text content from the result if it follows the expected structure
   const extractTextContent = (data: any): string => {
@@ -111,6 +112,7 @@ const AgentStatusPage = () => {
 
       const parsedStatus = parseStatusResponse(statusText);
       setStatus(parsedStatus);
+      setLastFetchTime(Date.now()); // Record the time when we fetched the status
       setError(null);
     } catch (err) {
       console.error('Error fetching agent status:', err);
@@ -307,9 +309,16 @@ const AgentStatusPage = () => {
     if (!status || !status.stage_list || status.stage_list.length === 0) return 0;
 
     const totalStages = status.stage_list.length;
-    const completedStages = status.stage_list.filter(stage => stage.reached).length;
+    const completedStages = status.stage_list.filter(stage => isStageCompleted(stage.index)).length;
 
     return Math.round((completedStages / totalStages) * 100);
+  };
+
+  // Determine if a stage is completed (reached and a later stage has been reached)
+  const isStageCompleted = (stageIndex: number) => {
+    if (!status || !status.stage_list) return false;
+    // A stage is completed if it's reached and there's at least one later stage that is also reached
+    return stageIndex < (status.current_stage_index || 0);
   };
 
   // Get current stage if available
@@ -317,6 +326,92 @@ const AgentStatusPage = () => {
     if (!status || !status.stage_list || status.current_stage_index === undefined) return null;
     return status.stage_list[status.current_stage_index];
   };
+
+  // Function to convert time string like "51m 02s" to total seconds
+  const convertTimeToSeconds = (timeStr: string): number => {
+    if (!timeStr || timeStr === "''" || timeStr === 'Not started') return 0;
+
+    // Match patterns like "51m 02s", "1h 20m", "30s", etc.
+    const hoursMatch = timeStr.match(/(\d+)h/);
+    const minutesMatch = timeStr.match(/(\d+)m/);
+    const secondsMatch = timeStr.match(/(\d+)s/);
+
+    const hours = hoursMatch ? parseInt(hoursMatch[1]) : 0;
+    const minutes = minutesMatch ? parseInt(minutesMatch[1]) : 0;
+    const seconds = secondsMatch ? parseInt(secondsMatch[1]) : 0;
+
+    return hours * 3600 + minutes * 60 + seconds;
+  };
+
+  // Function to convert seconds back to human-readable format like "Xh Ym Zs"
+  const convertSecondsToTime = (totalSeconds: number): string => {
+    if (totalSeconds <= 0) return '0s';
+
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    let result = '';
+    if (hours > 0) result += `${hours}h `;
+    if (minutes > 0) result += `${minutes}m `;
+    if (seconds > 0 || (hours === 0 && minutes === 0)) result += `${seconds}s`;
+
+    return result.trim();
+  };
+
+  // Ref to trigger re-renders for real-time updates, instead of using state that's never read
+  const tickRef = useRef(0);
+
+  // Calculate real-time elapsed time for the current stage
+  const getCurrentStageElapsedTime = () => {
+    if (!status || !getCurrentStage()) return '0s';
+
+    const currentStage = getCurrentStage();
+    if (!currentStage) return '0s';
+
+    // If the stage is completed or skipped, return the stored time
+    if (isStageCompleted(currentStage.index) || currentStage.is_skipped) {
+      return currentStage.time_cost || '0s';
+    }
+
+    // If we don't have the last fetch time, return the stored time
+    if (!lastFetchTime) {
+      return currentStage.time_cost || '0s';
+    }
+
+    // Calculate the time elapsed since the last fetch
+    const timeSinceLastFetch = (Date.now() - lastFetchTime) / 1000; // in seconds
+
+    // Convert the stored time to seconds and add the elapsed time
+    const baseTimeInSeconds = convertTimeToSeconds(currentStage.time_cost);
+    const totalTimeInSeconds = baseTimeInSeconds + timeSinceLastFetch;
+
+    // Convert back to human-readable format
+    return convertSecondsToTime(Math.floor(totalTimeInSeconds));
+  };
+
+  // Set up a timer to trigger re-renders every second when there's a current stage in progress
+  useEffect(() => {
+    let interval: number | null = null;
+
+    // Check if current stage is in progress
+    const currentStage = status ? status.stage_list?.[status.current_stage_index] : null;
+    const inProgress = currentStage && !isStageCompleted(currentStage.index);
+
+    if (inProgress) {
+      interval = window.setInterval(() => {
+        tickRef.current += 1;
+        // Trigger a re-render by updating status with the same value
+        setStatus(prev => prev ? {...prev} : null);
+      }, 1000);
+    }
+
+    return () => {
+      if (interval !== null) {
+        clearInterval(interval);
+      }
+    };
+  }, [status, isStageCompleted]); // Only depend on status and isStageCompleted
 
   if (loading) {
     return (
@@ -376,7 +471,7 @@ const AgentStatusPage = () => {
   }
 
   const progressPercentage = calculateProgress();
-  const currentStage = getCurrentStage();
+  const currentStage = status.stage_list?.[status.current_stage_index];
 
   return (
     <div className="flex flex-col h-full w-full bg-gradient-to-br from-slate-50 to-blue-50 p-6">
@@ -400,7 +495,7 @@ const AgentStatusPage = () => {
             <div>
               <h2 className="text-xl font-bold text-slate-800">Verification Progress</h2>
               <p className="text-slate-600 mt-1">
-                {status.stage_list?.length ? `${status.stage_list.filter(s => s.reached).length} of ${status.stage_list.length} stages completed` : 'No stages available'}
+                {status.stage_list?.length ? `${status.stage_list.filter(s => isStageCompleted(s.index)).length} of ${status.stage_list.length} stages completed` : 'No stages available'}
               </p>
             </div>
             <div className="flex items-center gap-4">
@@ -424,8 +519,8 @@ const AgentStatusPage = () => {
             </div>
             <div className="bg-blue-50 p-4 rounded-lg">
               <h3 className="font-semibold text-blue-800">{currentStage.title}</h3>
-              <p className="text-blue-700 mt-2">Time spent: {currentStage.time_cost || 'Not started'}</p>
-              <p className="text-blue-700">Status: {currentStage.is_skipped ? 'SKIPPED' : currentStage.reached ? 'COMPLETED' : 'IN PROGRESS'}</p>
+              <p className="text-blue-700 mt-2">Time spent: {getCurrentStageElapsedTime()}</p>
+              <p className="text-blue-700">Status: {currentStage.is_skipped ? 'SKIPPED' : isStageCompleted(currentStage.index) ? 'COMPLETED' : 'IN PROGRESS'}</p>
             </div>
           </div>
         )}
@@ -476,25 +571,34 @@ const AgentStatusPage = () => {
         <div className="bg-white rounded-2xl shadow-lg border border-slate-200 p-6">
           <h2 className="text-xl font-bold text-slate-800 mb-4">Verification Stages</h2>
           <div className="space-y-3">
-            {status.stage_list?.map((stage) => (
+            {status.stage_list?.map((stage) => {
+              const isCompleted = isStageCompleted(stage.index);
+              const isInProgress = stage.reached && !isCompleted;
+
+              return (
               <div
                 key={stage.index}
                 className={`p-4 rounded-lg border-l-4 ${
                   stage.is_skipped
                     ? 'bg-yellow-50 border-l-yellow-500'
-                    : stage.reached
+                    : isCompleted
                       ? 'bg-green-50 border-l-green-500'
-                      : stage.needs_human_check
-                        ? 'bg-orange-50 border-l-orange-500'
-                        : 'bg-slate-50 border-l-slate-300'
+                      : isInProgress
+                        ? 'bg-blue-50 border-l-blue-500'
+                        : stage.needs_human_check
+                          ? 'bg-orange-50 border-l-orange-500'
+                          : 'bg-slate-50 border-l-slate-300'
                 }`}
               >
                 <div className="flex justify-between items-start">
                   <div>
                     <h3 className="font-semibold text-slate-800">{stage.title}</h3>
                     <div className="flex flex-wrap gap-2 mt-2">
-                      {stage.reached && (
+                      {isCompleted && (
                         <span className="px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded-full">Completed</span>
+                      )}
+                      {isInProgress && (
+                        <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded-full">In Progress</span>
                       )}
                       {stage.is_skipped && (
                         <span className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs font-medium rounded-full">Skipped</span>
@@ -517,7 +621,8 @@ const AgentStatusPage = () => {
                   </div>
                 </div>
               </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       </div>
