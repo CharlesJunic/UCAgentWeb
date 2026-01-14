@@ -396,7 +396,11 @@ const AgentTerminal = () => {
           </div>
           <button
             onClick={connectionStatus === 'connected' ? disconnectWebSocket : connectWebSocket}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-white text-sm"
+            className={`px-4 py-2 rounded text-white text-sm ${
+              connectionStatus === 'connected'
+                ? 'bg-red-600 hover:bg-red-700'
+                : 'bg-blue-600 hover:bg-blue-700'
+            }`}
           >
             {connectionStatus === 'connected' ? 'Disconnect' : 'Connect'}
           </button>
