@@ -119,7 +119,7 @@ start-ws:
 			echo "ERROR: websocket_server.py not found in current directory"; \
 			exit 1; \
 		fi; \
-		cd $(CURRENT_DIR) && nohup python websocket_server.py $$TARGET > $(OUTPUT_DIR)/ws.log 2>&1 & echo $$! > $(WS_PID_FILE); \
+		cd $(CURRENT_DIR) && nohup python websocket_server.py Adder > $(OUTPUT_DIR)/ws.log 2>&1 & echo $$! > $(WS_PID_FILE); \
 		if [ $$! -gt 0 ]; then \
 			echo "WebSocket service started with PID: $$(cat $(WS_PID_FILE))"; \
 		else \
@@ -134,14 +134,14 @@ start-ws%:
 	if [ "$$TARGET" = "" ]; then \
 		TARGET=Adder; \
 	fi; \
-	echo "Starting terminal WebSocket service on port 8080 for target: $$TARGET";
-	@if [ -f $(WS_PID_FILE) ] && kill -0 $$(cat $(WS_PID_FILE)) 2>/dev/null; then \
+	if [ -f $(WS_PID_FILE) ] && kill -0 $$(cat $(WS_PID_FILE)) 2>/dev/null; then \
 		echo "WebSocket service is already running (PID: $$(cat $(WS_PID_FILE))). Skipping start."; \
 	else \
 		if [ ! -f "$(CURRENT_DIR)/websocket_server.py" ]; then \
 			echo "ERROR: websocket_server.py not found in current directory"; \
 			exit 1; \
 		fi; \
+		echo "Starting terminal WebSocket service on port 8080 for target: $$TARGET"; \
 		cd $(CURRENT_DIR) && nohup python websocket_server.py $$TARGET > $(OUTPUT_DIR)/ws.log 2>&1 & echo $$! > $(WS_PID_FILE); \
 		if [ $$! -gt 0 ]; then \
 			echo "WebSocket service started with PID: $$(cat $(WS_PID_FILE))"; \
@@ -304,7 +304,7 @@ clean-agent:
 define check_port_available
 	@echo "Waiting for service on port $(1) to become available..."
 	@timeout 120 sh -c 'until nc -z localhost $(1); do sleep 1; done' || { \
-		echo "ERROR: Service on port $(1) did not become available within 30 seconds"; \
+		echo "ERROR: Service on port $(1) did not become available within 120 seconds"; \
 		exit 1; \
 	}
 	@echo "Service on port $(1) is available"

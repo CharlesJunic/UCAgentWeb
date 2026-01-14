@@ -823,8 +823,11 @@ if __name__ == "__main__":
     if sys.platform == 'win32':
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
+    # Get target from command line arguments, default to "Adder"
+    target = sys.argv[1] if len(sys.argv) > 1 else "Adder"
+
     try:
-        asyncio.run(main())
+        asyncio.run(main(target))
     except KeyboardInterrupt:
         logger.info("Shutting down PTY server...")
         cleanup_pty()
