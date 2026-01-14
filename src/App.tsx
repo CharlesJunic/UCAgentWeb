@@ -3,9 +3,10 @@ import './App.css';
 import AgentConsole from './AgentMCPConsole';
 import MCPClientTerminal from './MCPClientTerminal';
 import AgentTerminal from './AgentTerminal';
+import AgentStatusPage from './AgentStatus';
 
 function App() {
-  const [currentPage, setCurrentPage] = useState<'console' | 'terminal' | 'agentTerminal'>('console');
+  const [currentPage, setCurrentPage] = useState<'console' | 'terminal' | 'agentTerminal' | 'agentStatus'>('console');
 
   return (
     <div className="App min-h-screen w-screen bg-gradient-to-br from-slate-50 to-blue-50 flex flex-col">
@@ -61,6 +62,20 @@ function App() {
                   </div>
                 </button>
               </li>
+              <li>
+                <button
+                  onClick={() => setCurrentPage('agentStatus')}
+                  className={`w-full text-left px-4 py-3 rounded-lg transition-colors ${
+                    currentPage === 'agentStatus'
+                      ? 'bg-indigo-100 text-indigo-700 font-medium'
+                      : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  <div className="flex items-center">
+                    <span>Agent Status</span>
+                  </div>
+                </button>
+              </li>
             </ul>
           </nav>
 
@@ -81,7 +96,9 @@ function App() {
             ? <AgentConsole />
             : currentPage === 'terminal'
               ? <MCPClientTerminal />
-              : <AgentTerminal />}
+              : currentPage === 'agentTerminal'
+                ? <AgentTerminal />
+                : <AgentStatusPage />}
         </div>
       </div>
     </div>

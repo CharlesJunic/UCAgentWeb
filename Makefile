@@ -326,7 +326,7 @@ dev%: stop
 	make start-ws$$TARGET
 	@echo "Waiting for web service to start..."
 	@sleep 5
-	@make start-mcp-client start-web
+	@make start-mcp-client start-web 
 	@echo "All services started:"
 	@echo "- UCAgent (port 5000): Check $(UCAGENT_DIR) directory"
 	@echo "- MCP Client (port 8000): Running in $(CURRENT_DIR)"

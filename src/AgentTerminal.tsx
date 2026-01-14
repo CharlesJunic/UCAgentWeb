@@ -7,18 +7,30 @@ type CommandHistory = {
 };
 
 const TERMINAL_STORAGE_KEY = 'ucagent-terminal-history';
+const TERMINAL_OUTPUT_STORAGE_KEY = 'ucagent-terminal-output';
+
+// Global WebSocket connection to persist across component re-renders
+let globalWs: WebSocket | null = null;
+let globalReconnectTimeout: number | null = null;
+let globalReconnectAttempts = 0;
+let globalConnectionStatus: 'disconnected' | 'connecting' | 'connected' | 'error' = 'disconnected';
 
 const AgentTerminal = () => {
-  const [output, setOutput] = useState<string>('');
+  const [output, setOutput] = useState<string>(() => {
+    // Initialize output from localStorage
+    const savedOutput = localStorage.getItem(TERMINAL_OUTPUT_STORAGE_KEY);
+    return savedOutput || '';
+  });
   const [inputValue, setInputValue] = useState<string>('');
-  const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
+  const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>(
+    globalConnectionStatus
+  );
   const [commandHistory, setCommandHistory] = useState<CommandHistory[]>([]);
   const [currentPrompt, setCurrentPrompt] = useState<string>('(UnityChip) ');
   const terminalRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null); // Use number for browser compatibility
-  const reconnectAttemptsRef = useRef<number>(0);
+  const reconnectAttemptsRef = useRef<number>(globalReconnectAttempts);
   const maxReconnectAttempts = 5;
   const connectionStatusRef = useRef(connectionStatus); // Track connection status in a ref
 
@@ -30,13 +42,27 @@ const AgentTerminal = () => {
   // Reset reconnect attempts when manually connecting
   const resetReconnectAttempts = () => {
     reconnectAttemptsRef.current = 0;
+    globalReconnectAttempts = 0;
   };
 
   // Function to connect to WebSocket
   const connectWebSocket = () => {
-    if (wsRef.current) {
-      // Close existing connection if any
-      wsRef.current.close();
+    // If we already have a global connection, use it
+    if (globalWs) {
+      // If it's already connected, just update the status
+      if (globalWs.readyState === WebSocket.OPEN) {
+        setConnectionStatus('connected');
+        setCurrentPrompt('(UnityChip) ');
+        setOutput(prev => prev + 'Reconnected to UCAgent terminal via PTY.\nType commands to interact with the Agent.\n\n');
+        return;
+      }
+      // If it's connecting, just update the status
+      if (globalWs.readyState === WebSocket.CONNECTING) {
+        setConnectionStatus('connecting');
+        return;
+      }
+      // If it's in another state, close it first
+      globalWs.close();
     }
 
     setConnectionStatus('connecting');
@@ -48,6 +74,8 @@ const AgentTerminal = () => {
 
       ws.onopen = () => {
         console.log('PTY WebSocket connected successfully');
+        globalWs = ws;
+        globalConnectionStatus = 'connected';
         setConnectionStatus('connected');
         setCurrentPrompt('(UnityChip) ');
         setOutput(prev => prev + 'Connected to UCAgent terminal via PTY.\nType commands to interact with the Agent.\n\n');
@@ -91,11 +119,13 @@ const AgentTerminal = () => {
         console.error('PTY WebSocket error:', error);
         setConnectionStatus('error');
         // Convert error event to string for better debugging
-        setOutput(prev => prev + `[ERROR] WebSocket connection error: ${error instanceof Event ? 'WebSocket error occurred' : String(error)}\n`);
+        setOutput(prev => prev + `[ERROR] WebSocket connection error: ${error instanceof ErrorEvent ? error.message : 'WebSocket error occurred'}\n`);
       };
 
       ws.onclose = (event) => {
         console.log('PTY WebSocket disconnected:', event.code, event.reason);
+        globalWs = null;
+        globalConnectionStatus = 'disconnected';
         setConnectionStatus('disconnected');
         setOutput(prev => prev + `Disconnected from Agent terminal. Code: ${event.code}, Reason: "${event.reason}"\n`);
 
@@ -105,19 +135,20 @@ const AgentTerminal = () => {
           if (reconnectAttemptsRef.current < maxReconnectAttempts) {
             // Increment attempts before scheduling the next connection
             reconnectAttemptsRef.current++;
+            globalReconnectAttempts = reconnectAttemptsRef.current;
             const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current - 1), 10000); // Exponential backoff, max 10s
 
             setOutput(prev => prev + `Attempting to reconnect... (attempt ${reconnectAttemptsRef.current}/${maxReconnectAttempts})\n`);
 
             // Clear any existing timeout to prevent multiple timers
-            if (reconnectTimeoutRef.current) {
-              clearTimeout(reconnectTimeoutRef.current);
+            if (globalReconnectTimeout) {
+              clearTimeout(globalReconnectTimeout);
             }
 
             // Schedule reconnection with exponential backoff
-            reconnectTimeoutRef.current = window.setTimeout(() => {
+            globalReconnectTimeout = window.setTimeout(() => {
               // Only attempt reconnection if we're still in disconnected state
-              if (connectionStatusRef.current !== 'connected') {
+              if (globalConnectionStatus !== 'connected') {
                 connectWebSocket();
               }
             }, delay);
@@ -132,7 +163,8 @@ const AgentTerminal = () => {
         }
       };
 
-      wsRef.current = ws;
+      // Store the WebSocket reference globally
+      globalWs = ws;
     } catch (error) {
       console.error('Failed to connect to PTY WebSocket:', error);
       setConnectionStatus('disconnected');
@@ -141,19 +173,20 @@ const AgentTerminal = () => {
       if (reconnectAttemptsRef.current < maxReconnectAttempts) {
         // Increment attempts before scheduling the next connection
         reconnectAttemptsRef.current++;
+        globalReconnectAttempts = reconnectAttemptsRef.current;
         const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current - 1), 10000); // Exponential backoff, max 10s
 
         setOutput(prev => prev + `Connection failed, attempting to reconnect... (attempt ${reconnectAttemptsRef.current}/${maxReconnectAttempts})\n`);
 
         // Clear any existing timeout to prevent multiple timers
-        if (reconnectTimeoutRef.current) {
-          clearTimeout(reconnectTimeoutRef.current);
+        if (globalReconnectTimeout) {
+          clearTimeout(globalReconnectTimeout);
         }
 
         // Schedule reconnection with exponential backoff
-        reconnectTimeoutRef.current = window.setTimeout(() => {
+        globalReconnectTimeout = window.setTimeout(() => {
           // Only attempt reconnection if we're still in disconnected state
-          if (connectionStatusRef.current !== 'connected') {
+          if (globalConnectionStatus !== 'connected') {
             connectWebSocket();
           }
         }, delay);
@@ -168,14 +201,15 @@ const AgentTerminal = () => {
 
   // Function to disconnect from WebSocket
   const disconnectWebSocket = () => {
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-      reconnectTimeoutRef.current = null;
+    if (globalReconnectTimeout) {
+      clearTimeout(globalReconnectTimeout);
+      globalReconnectTimeout = null;
     }
 
-    if (wsRef.current) {
-      wsRef.current.close(1000, "Manual disconnect"); // 1000 means normal closure
-      wsRef.current = null;
+    if (globalWs) {
+      globalWs.close(1000, "Manual disconnect"); // 1000 means normal closure
+      globalWs = null;
+      globalConnectionStatus = 'disconnected';
       setConnectionStatus('disconnected');
       setOutput(prev => prev + 'Disconnected from Agent terminal.\n');
     }
@@ -199,6 +233,11 @@ const AgentTerminal = () => {
     localStorage.setItem(TERMINAL_STORAGE_KEY, JSON.stringify(commandHistory));
   }, [commandHistory]);
 
+  // Save output to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem(TERMINAL_OUTPUT_STORAGE_KEY, output);
+  }, [output]);
+
   // Function to execute a command
   const executeCommand = async (command: string) => {
     if (!command.trim()) return;
@@ -207,10 +246,10 @@ const AgentTerminal = () => {
     const commandLine = `${currentPrompt}${command}\n`;
     setOutput(prev => prev + commandLine);
 
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+    if (globalWs && globalWs.readyState === WebSocket.OPEN) {
       // Send command to the Agent terminal via WebSocket
       const message = JSON.stringify({ type: 'input', data: command });
-      wsRef.current.send(message);
+      globalWs.send(message);
     } else {
       setOutput(prev => prev + 'Not connected to Agent terminal.\n');
     }
@@ -294,23 +333,35 @@ const AgentTerminal = () => {
   const clearTerminal = async () => {
     setOutput('');
     setCommandHistory([]);
+    // Also clear the output from localStorage
+    localStorage.removeItem(TERMINAL_OUTPUT_STORAGE_KEY);
   };
 
   // Initialize connection
   useEffect(() => {
-    connectWebSocket();
+    // If there's already a global connection, just update the local state to match
+    if (globalWs) {
+      if (globalWs.readyState === WebSocket.OPEN) {
+        setConnectionStatus('connected');
+        globalConnectionStatus = 'connected';
+      } else if (globalWs.readyState === WebSocket.CONNECTING) {
+        setConnectionStatus('connecting');
+        globalConnectionStatus = 'connecting';
+      } else {
+        connectWebSocket();
+      }
+    } else {
+      connectWebSocket();
+    }
 
-    // Cleanup function to close WebSocket connection and clear timeouts when component unmounts
+    // Cleanup function to clear timeouts when component unmounts
+    // NOTE: We don't close the global WebSocket here to maintain connection across page switches
     return () => {
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }
-
-      if (wsRef.current) {
-        wsRef.current.close(1000, "Component unmount"); // 1000 means normal closure
-      }
     };
-  }, []);
+  }, []); // Empty dependency array means this effect runs once on mount and cleanup on unmount
 
   // Focus input when component mounts
   useEffect(() => {
@@ -363,24 +414,24 @@ const AgentTerminal = () => {
         className="flex-grow overflow-y-auto bg-black p-4 rounded mb-2 min-h-0 w-full cursor-text"
         onClick={() => inputRef?.current?.focus()}
       >
-        <pre className="whitespace-pre-wrap break-all w-full font-mono">
+        <pre className="whitespace-pre-wrap break-all w-full font-mono mb-2">
           {output}
-          <div className="flex items-center">
-            <span className="text-green-400">{currentPrompt}</span>
-            <input
-              ref={inputRef}
-              type="text"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={handleKeyDown}
-              className="flex-grow bg-transparent text-green-400 font-mono outline-none caret-white"
-              autoComplete="off"
-              spellCheck="false"
-              placeholder="Type a command..."
-              disabled={connectionStatus !== 'connected'}
-            />
-          </div>
         </pre>
+        <div className="flex items-center">
+          <span className="text-green-400">{currentPrompt}</span>
+          <input
+            ref={inputRef}
+            type="text"
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyDown={handleKeyDown}
+            className="flex-grow bg-transparent text-green-400 font-mono outline-none caret-white"
+            autoComplete="off"
+            spellCheck="false"
+            placeholder="Type a command..."
+            disabled={connectionStatus !== 'connected'}
+          />
+        </div>
       </div>
 
       <div className="text-xs text-gray-500 mt-2">

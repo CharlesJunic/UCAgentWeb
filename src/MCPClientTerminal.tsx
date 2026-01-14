@@ -10,10 +10,20 @@ type CommandHistory = {
 };
 
 const TERMINAL_STORAGE_KEY = 'mcp-client-terminal-history';
+const TERMINAL_RAW_OUTPUT_STORAGE_KEY = 'mcp-client-terminal-raw-output';
+const TERMINAL_COMMAND_OUTPUT_STORAGE_KEY = 'mcp-client-terminal-command-output';
 
 const MCPClientTerminal = () => {
-  const [rawOutput, setRawOutput] = useState<string>(''); // Raw server output
-  const [commandOutput, setCommandOutput] = useState<string>(''); // Command execution output
+  const [rawOutput, setRawOutput] = useState<string>(() => {
+    // Initialize raw output from localStorage
+    const savedRawOutput = localStorage.getItem(TERMINAL_RAW_OUTPUT_STORAGE_KEY);
+    return savedRawOutput || '';
+  });
+  const [commandOutput, setCommandOutput] = useState<string>(() => {
+    // Initialize command output from localStorage
+    const savedCommandOutput = localStorage.getItem(TERMINAL_COMMAND_OUTPUT_STORAGE_KEY);
+    return savedCommandOutput || '';
+  });
   const [inputValue, setInputValue] = useState<string>('');
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('connecting');
   const [commandHistory, setCommandHistory] = useState<CommandHistory[]>([]);
@@ -117,6 +127,16 @@ const MCPClientTerminal = () => {
   useEffect(() => {
     localStorage.setItem(TERMINAL_STORAGE_KEY, JSON.stringify(commandHistory));
   }, [commandHistory]);
+
+  // Save raw output to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem(TERMINAL_RAW_OUTPUT_STORAGE_KEY, rawOutput);
+  }, [rawOutput]);
+
+  // Save command output to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem(TERMINAL_COMMAND_OUTPUT_STORAGE_KEY, commandOutput);
+  }, [commandOutput]);
 
   // Function to execute a command
   const executeCommand = async (command: string) => {
@@ -367,6 +387,9 @@ const MCPClientTerminal = () => {
       setRawOutput('');
       setCommandOutput('');
       setCommandHistory([]);
+      // Also clear the outputs from localStorage
+      localStorage.removeItem(TERMINAL_RAW_OUTPUT_STORAGE_KEY);
+      localStorage.removeItem(TERMINAL_COMMAND_OUTPUT_STORAGE_KEY);
     } catch (error) {
       console.error('Error clearing output:', error);
       setCommandOutput(prev => prev + `Error clearing output: ${(error as Error).message}\n`);

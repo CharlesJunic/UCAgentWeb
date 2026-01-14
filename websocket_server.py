@@ -73,7 +73,7 @@ def setup_pty(target="Adder"):
         # 1. Modify the Makefile to remove the --tui option (which requires a terminal)
         # 2. Use stdbuf to disable output buffering for real-time output
         # 3. Run the specified target from the modified Makefile
-        command = f"sed '/^mcp_%: init_%/,/^$/ s/--tui //' Makefile > Makefile.tmp && stdbuf -oL -eL make -f Makefile.tmp mcp_{target}"
+        # command = f"sed '/^mcp_%: init_%/,/^$/ s/--tui //' Makefile > Makefile.tmp && stdbuf -oL -eL make -f Makefile.tmp mcp_{target}"
 
         # Try to determine the correct working directory for UCAgent
         import pathlib
@@ -106,9 +106,14 @@ def setup_pty(target="Adder"):
             ucagent_cwd = str(current_dir)
             logger.info(f"Falling back to current directory: {ucagent_cwd}")
 
+        # Create the temporary Makefile first
+        temp_makefile_path = os.path.join(ucagent_cwd, "Makefile.tmp")
+        sed_command = f"sed '/^mcp_%: init_%/,/^$/ s/--tui //' Makefile > {temp_makefile_path}"
+        subprocess.run(sed_command, shell=True, cwd=ucagent_cwd)
+
         # Start the UCAgent process with the PTY as its I/O
         agent_process = subprocess.Popen(
-            command,                    # The command to execute
+            f"stdbuf -oL -eL make -f Makefile.tmp mcp_{target}",  # Just run the make command with the temp file
             stdin=slave_fd,             # Connect stdin to the PTY slave
             stdout=slave_fd,            # Connect stdout to the PTY slave
             stderr=slave_fd,            # Connect stderr to the PTY slave
@@ -139,11 +144,16 @@ def setup_pty(target="Adder"):
             # Put a welcome message in the queue for broadcasting to clients
             message_queue.put_nowait({  # Changed from put to put_nowait to prevent blocking
                 "type": "output",
-                "data": "Connected to UCAgent PDB mode via PTY.\n(UnityChip) "
+                "data": "Connected to UCAgent PDB mode via PTY.\n"
             })
-        except:
-            # If the queue is full, log a warning but don't block
-            logger.warning("Message queue is full, dropping welcome message")
+
+            # Send an initial command to get the agent started (e.g., continue execution)
+            # This ensures the agent is in a state where it can accept commands
+            time.sleep(2)  # Wait a bit for the agent to fully initialize
+            os.write(master_fd, b"continue\n")  # Send continue command to PDB to start processing
+        except Exception as e:
+            # If the queue is full or there's an error, log a warning but don't block
+            logger.warning(f"Error sending welcome message or initial command: {e}")
     except Exception as e:
         # Handle any errors that occur during PTY setup or process startup
         logger.error(f"Failed to start UCAgent process: {e}")
@@ -473,7 +483,6 @@ async def broadcast_pty_output():
             await asyncio.sleep(0.1)
 
 
-
 async def broadcast_message_to_clients(message_data):
     """
     Broadcast a message to all connected WebSocket clients.
@@ -520,46 +529,6 @@ async def broadcast_message_to_clients(message_data):
             clients.discard(client)
 
 
-async def handle_message_queue():
-    """
-    Async function to handle messages from the queue.
-
-    This function continuously monitors the message queue for new messages and
-    broadcasts them to all connected clients. It uses a non-blocking approach
-    with timeouts to avoid blocking the event loop when the queue is empty.
-
-    The function is designed to run as a background task in the asyncio event loop,
-    ensuring that messages from the PTY output reader thread are promptly
-    delivered to WebSocket clients.
-    """
-    # Infinite loop to continuously process messages from the queue
-    while True:
-        try:
-            # Try to get a message from the queue with a timeout
-            try:
-                # Get a message from the queue with a 100ms timeout
-                # This prevents the function from blocking indefinitely if the queue is empty
-                message_data = message_queue.get(timeout=0.1)  # 100ms timeout
-
-                # Broadcast the retrieved message to all connected clients
-                # This is an asynchronous operation that won't block the event loop
-                await broadcast_message_to_clients(message_data)
-
-            except Empty:
-                # No messages in queue, continue loop
-                # This is expected behavior when the queue is temporarily empty
-                # We simply skip to the next iteration to check again
-                continue
-
-        except Exception as e:
-            # Log any unexpected errors that occur during message processing
-            logger.error(f"Error handling message queue: {e}")
-
-            # Sleep briefly before retrying to avoid rapid error loops
-            # This prevents the function from consuming excessive CPU in case of persistent errors
-            await asyncio.sleep(0.1)
-
-
 async def pty_handler(websocket):
     """
     Handle WebSocket connections for PTY communication.
@@ -599,7 +568,7 @@ async def pty_handler(websocket):
         # This informs the client that they've successfully connected to the UCAgent PTY
         welcome_msg = {
             "type": "output",
-            "data": "Connected to UCAgent PTY WebSocket. Type commands to interact with UCAgent.\n(UnityChip) "
+            "data": "Connected to UCAgent PTY WebSocket. Type commands to interact with UCAgent.\n"
         }
         await websocket.send(json.dumps(welcome_msg))
 
