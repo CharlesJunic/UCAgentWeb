@@ -2,9 +2,7 @@
 
 <div align="center">
 
-English | **[中文](README.zh.md)**
-
-A modern web interface component customized for UCAgent, providing an intuitive graphical interface to manage and monitor hardware verification tasks.
+[English](README.en.md) | **[中文](README.zh.md)**
 
 [![License](https://img.shields.io/github/license/XS-MLVP/UCAgentWeb)](LICENSE)
 [![Made with React](https://img.shields.io/badge/Made%20with-React-blue.svg)](https://reactjs.org/)
@@ -12,7 +10,21 @@ A modern web interface component customized for UCAgent, providing an intuitive 
 
 </div>
 
-## Introduction
+A modern web interface component customized for UCAgent, providing an intuitive graphical interface to manage and monitor hardware verification tasks.
+
+## Table of Contents
+
+- [About](#about)
+- [Features](#features)
+- [Architecture](#architecture)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Components](#components)
+- [Tech Stack](#tech-stack)
+- [Contributing](#contributing)
+- [License](#license)
+
+## About
 
 UCAgentWeb is the official web interface component for UCAgent (UnityChip Verification AI-Agent). UCAgent is an AI-powered automated hardware verification agent based on large language models, focusing on unit test verification for chip design. UCAgentWeb provides an intuitive web interface that enables users to more conveniently manage, monitor, and analyze hardware verification tasks.
 
@@ -25,15 +37,27 @@ UCAgentWeb is the official web interface component for UCAgent (UnityChip Verifi
 - **Multi-mode Support**: Supports standard, enhanced, and advanced intelligent interaction modes
 - **Real-time Monitoring**: View logs and status updates during the verification process in real-time
 - **Team Collaboration**: Supports multi-user access and permission management
+- **MCP Integration**: Full integration with Model Context Protocol for seamless tool interaction
 
-## System Requirements
+## Architecture
+
+The project follows a microservices architecture with:
+
+- **Frontend**: React/TypeScript web interface using Vite and Tailwind CSS
+- **MCP Gateway**: FastAPI service that bridges the web interface with the UCAgent backend
+- **WebSocket Terminal**: Real-time terminal interface to interact with the agent's debugging mode
+- **Agent Backend**: External UCAgent service (running on port 5000) that performs hardware verification tasks
+
+The Makefile orchestrates the entire development environment, making it easy to start all services together for development.
+
+## Installation
+
+### Prerequisites
 
 - **Browser**: Chrome 90+, Firefox 88+, Safari 14+, Edge 90+
 - **Node.js**: 18.x or higher
 - **Memory**: 4GB+ recommended
 - **Network**: Connection to UCAgent backend services required
-
-## Installation and Deployment
 
 ### Development Environment Setup
 
@@ -112,6 +136,12 @@ UCAgentWeb provides multiple interfaces for interacting with the Agent:
 - Displays available tools with descriptions and input schemas
 - Allows parameter input and execution with result visualization
 
+#### Agent Status Panel
+- Real-time verification progress tracking
+- Detailed stage-by-stage status display
+- Current task and milestone information
+- Progress percentage and completion metrics
+
 #### MCP Client Terminal
 - Command-line interface for direct interaction with the Agent
 - Supports the following commands:
@@ -140,15 +170,30 @@ View verification progress, coverage statistics, and log output in the real-time
 
 After verification completes, review the generated detailed reports and analysis charts.
 
+## Components
+
+### Frontend Components
+
+- **AgentMCPConsole.tsx**: Comprehensive console for discovering and calling MCP tools
+- **AgentStatus.tsx**: Displays current verification status and progress
+- **AgentTerminal.tsx**: Terminal interface for direct agent interaction
+- **MCPClientTerminal.tsx**: Alternative terminal interface for MCP interactions
+
+### Backend Services
+
+- **mcp-client.py**: FastAPI gateway for MCP communication
+- **websocket_server.py**: WebSocket server for real-time terminal interaction
+
 ## Tech Stack
 
-- **Frontend Framework**: React 18 + TypeScript
+- **Frontend Framework**: React 19 + TypeScript
 - **Styling**: Tailwind CSS
 - **Build Tool**: Vite
 - **Package Manager**: pnpm
-- **State Management**: React Hooks + Context API
-- **HTTP Client**: Axios
-- **Chart Library**: Chart.js or D3.js
+- **State Management**: React Hooks
+- **Backend API**: FastAPI
+- **Communication Protocol**: Model Context Protocol (MCP)
+- **WebSocket**: Real-time terminal communication
 
 ## Contributing
 

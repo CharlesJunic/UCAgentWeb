@@ -2,9 +2,7 @@
 
 <div align="center">
 
-**[English](README.en.md)** | 中文
-
-一个为 UCAgent 定制的现代化网页端交互组件，提供直观的图形界面来管理和监控硬件验证任务。
+[English](README.en.md) | **[中文](README.zh.md)**
 
 [![License](https://img.shields.io/github/license/XS-MLVP/UCAgentWeb)](LICENSE)
 [![Made with React](https://img.shields.io/badge/Made%20with-React-blue.svg)](https://reactjs.org/)
@@ -12,7 +10,21 @@
 
 </div>
 
-## 简介
+一个为 UCAgent 定制的现代化网页端交互组件，提供直观的图形界面来管理和监控硬件验证任务。
+
+## 目录
+
+- [关于](#关于)
+- [功能特性](#功能特性)
+- [架构](#架构)
+- [安装](#安装)
+- [使用方法](#使用方法)
+- [组件](#组件)
+- [技术栈](#技术栈)
+- [贡献指南](#贡献指南)
+- [许可证](#许可证)
+
+## 关于
 
 UCAgentWeb 是 UCAgent（UnityChip 验证 AI 智能体）的官方网页端交互组件。UCAgent 是一个基于大语言模型的 AI 驱动的自动化硬件验证智能体，专注于芯片设计单元测试验证。UCAgentWeb 提供了一个直观的 Web 界面，使用户能够更方便地管理、监控和分析硬件验证任务。
 
@@ -25,15 +37,27 @@ UCAgentWeb 是 UCAgent（UnityChip 验证 AI 智能体）的官方网页端交�
 - **多模式支持**：支持标准、增强和高级三种智能交互模式
 - **实时监控**：实时查看验证过程中的日志和状态更新
 - **团队协作**：支持多用户访问和权限管理
+- **MCP 集成**：完全集成 Model Context Protocol，实现无缝工具交互
 
-## 系统要求
+## 架构
+
+该项目采用微服务架构：
+
+- **前端**：使用 Vite 和 Tailwind CSS 的 React/TypeScript 网页界面
+- **MCP 网关**：FastAPI 服务，桥接网页界面与 UCAgent 后端
+- **WebSocket 终端**：实时终端界面，用于与代理的调试模式交互
+- **代理后端**：外部 UCAgent 服务（运行在端口 5000 上），执行硬件验证任务
+
+Makefile 编排整个开发环境，便于一起启动所有服务进行开发。
+
+## 安装
+
+### 先决条件
 
 - **浏览器**：Chrome 90+, Firefox 88+, Safari 14+, Edge 90+
 - **Node.js**：18.x 或更高版本
 - **内存**：建议 4GB 可用内存
 - **网络**：需要连接到 UCAgent 后端服务
-
-## 安装与部署
 
 ### 开发环境设置
 
@@ -112,6 +136,12 @@ UCAgentWeb 提供多个界面用于与代理交互：
 - 显示带有描述和输入模式的可用工具
 - 允许参数输入和执行，并可视化结果
 
+#### Agent Status Panel（代理状态面板）
+- 实时验证进度跟踪
+- 详细的阶段状态显示
+- 当前任务和里程碑信息
+- 进度百分比和完成指标
+
 #### MCP Client Terminal
 - 用于直接与代理交互的命令行界面
 - 支持以下命令：
@@ -140,15 +170,30 @@ UCAgentWeb 提供多个界面用于与代理交互：
 
 验证完成后，查看生成的详细报告和分析图表。
 
+## 组件
+
+### 前端组件
+
+- **AgentMCPConsole.tsx**：用于发现和调用 MCP 工具的综合控制台
+- **AgentStatus.tsx**：显示当前验证状态和进度
+- **AgentTerminal.tsx**：用于直接代理交互的终端界面
+- **MCPClientTerminal.tsx**：用于 MCP 交互的替代终端界面
+
+### 后端服务
+
+- **mcp-client.py**：用于 MCP 通信的 FastAPI 网关
+- **websocket_server.py**：用于实时终端交互的 WebSocket 服务器
+
 ## 技术栈
 
-- **前端框架**：React 18 + TypeScript
+- **前端框架**：React 19 + TypeScript
 - **样式**：Tailwind CSS
 - **构建工具**：Vite
 - **包管理器**：pnpm
-- **状态管理**：React Hooks + Context API
-- **HTTP 客户端**：Axios
-- **图表库**：Chart.js 或 D3.js
+- **状态管理**：React Hooks
+- **后端 API**：FastAPI
+- **通信协议**：Model Context Protocol (MCP)
+- **WebSocket**：实时终端通信
 
 ## 贡献指南
 
