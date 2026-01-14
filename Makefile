@@ -293,18 +293,29 @@ clean:
 	@find . -type f -name "*.pyc" -delete
 	@find . -type f -name "*.pyo" -delete
 	@find . -type d -name ".pytest_cache" -exec rm -rf {} +
+	@make ua-clean
 	@echo "Clean completed."
 
 clean-agent:
 	@echo "Removing UCAgent directory..."
 	@rm -rf $(UCAGENT_DIR)
 
+# Function to check if a service is available on a specific port
+define check_port_available
+	@echo "Waiting for service on port $(1) to become available..."
+	@timeout 120 sh -c 'until nc -z localhost $(1); do sleep 1; done' || { \
+		echo "ERROR: Service on port $(1) did not become available within 30 seconds"; \
+		exit 1; \
+	}
+	@echo "Service on port $(1) is available"
+endef
+
 # Parameterized dev target to start services with specific agent target
 dev: stop
 	@echo "Starting development environment with default agent target: Adder"; \
 	make start-wsAdder
-	@echo "Waiting for services to start..."
-	@sleep 5
+	@echo "Waiting for Agent service to start..."
+	$(call check_port_available,5000)
 	@make start-mcp-client start-web
 	@echo "All services started:"
 	@echo "- UCAgent (port 5000): Check $(UCAGENT_DIR) directory"
@@ -324,9 +335,9 @@ dev%: stop
 	fi; \
 	echo "Starting development environment with agent target: $$TARGET"; \
 	make start-ws$$TARGET
-	@echo "Waiting for web service to start..."
-	@sleep 5
-	@make start-mcp-client start-web 
+	@echo "Waiting for Agent service to start..."
+	$(call check_port_available,5000)
+	@make start-mcp-client start-web
 	@echo "All services started:"
 	@echo "- UCAgent (port 5000): Check $(UCAGENT_DIR) directory"
 	@echo "- MCP Client (port 8000): Running in $(CURRENT_DIR)"

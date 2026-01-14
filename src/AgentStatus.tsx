@@ -19,7 +19,7 @@ interface AgentStatus {
     description: string[];
     reference_files: Record<string, string>;
     output_files: string[];
-  };
+  } | string; // Can be a string when mission is completed
   current_stage_index: number;
   current_stage_name: string;
   last_check_result: Record<string, any>;
@@ -175,18 +175,51 @@ const AgentStatusPage = () => {
         result.process = trimmedLine.substring('process:'.length).trim();
         currentSection = null;
       } else if (trimmedLine.startsWith('current_stage_index:')) {
-        result.current_stage_index = parseInt(trimmedLine.substring('current_stage_index:'.length).trim(), 10);
+        const value = trimmedLine.substring('current_stage_index:'.length).trim();
+        // Handle the case where current_stage_index might be null or not a number
+        if (value && !isNaN(parseInt(value, 10))) {
+          result.current_stage_index = parseInt(value, 10);
+        } else {
+          result.current_stage_index = -1; // Indicate no current stage
+        }
         currentSection = null;
       } else if (trimmedLine.startsWith('current_stage_name:')) {
         result.current_stage_name = trimmedLine.substring('current_stage_name:'.length).trim();
         currentSection = null;
       } else if (trimmedLine.startsWith('last_check_result:')) {
-        result.last_check_result = {};
-        currentSection = 'last_check_result';
+        // Parse the last_check_result section which may have complex nested structure
+        result.last_check_result = parseLastCheckResult(lines.slice(i));
+        // Skip the lines we just processed
+        // Find the next top-level property to determine how many lines to skip
+        for (let j = i + 1; j < lines.length; j++) {
+          if (lines[j].trim() && !lines[j].match(/^\s+/)) { // Found next top-level property
+            i = j - 1; // Adjust loop counter to account for increment
+            break;
+          }
+          if (j === lines.length - 1) {
+            i = j; // Reached end of lines
+          }
+        }
+        currentSection = null;
       } else if (trimmedLine === 'stage_list:') {
         currentSection = 'stage_list';
-      } else if (trimmedLine === 'current_task:') {
-        currentSection = 'current_task';
+      } else if (trimmedLine.startsWith('current_task:')) {
+        // Handle the case where current_task is a string (when mission is completed)
+        const currentTaskValue = trimmedLine.substring('current_task:'.length).trim();
+        if (currentTaskValue && currentTaskValue !== '') {
+          // If current_task has a value after the colon, it's a string message
+          if (result.current_task) {
+            result.current_task = {
+              title: currentTaskValue,
+              description: ["Mission completed or no active task"],
+              reference_files: {},
+              output_files: []
+            };
+          }
+        } else {
+          // Otherwise, it's the start of an object structure
+          currentSection = 'current_task';
+        }
       } else if (currentSection === 'stage_list') {
         // Handle stage list items
         if (line.match(/^\s*-\s+index:/)) {
@@ -241,7 +274,7 @@ const AgentStatusPage = () => {
         }
       } else if (currentSection === 'current_task') {
         if (trimmedLine.startsWith('title:')) {
-          if (result.current_task) {
+          if (result.current_task && typeof result.current_task === 'object') {
             result.current_task.title = trimmedLine.substring('title:'.length).trim();
           }
         } else if (trimmedLine === 'description:') {
@@ -249,7 +282,7 @@ const AgentStatusPage = () => {
         } else if (currentSubsection === 'description' && line.match(/^\s*-\s+/)) {
           // Description item (starts with '- ' and is indented)
           const descItem = line.replace(/^\s*-\s+/, '').trim();
-          if (result.current_task && descItem) {
+          if (result.current_task && typeof result.current_task === 'object' && descItem) {
             result.current_task.description?.push(descItem);
           }
         } else if (trimmedLine === 'reference_files:') {
@@ -262,12 +295,12 @@ const AgentStatusPage = () => {
           if (colonIndex !== -1) {
             const file = fileEntry.substring(0, colonIndex);
             const status = fileEntry.substring(colonIndex + 2);
-            if (result.current_task) {
+            if (result.current_task && typeof result.current_task === 'object') {
               result.current_task.reference_files![file] = status;
             }
           } else {
             // Simple filename format
-            if (result.current_task) {
+            if (result.current_task && typeof result.current_task === 'object') {
               result.current_task.reference_files![fileEntry] = 'Not Read';
             }
           }
@@ -276,7 +309,7 @@ const AgentStatusPage = () => {
         } else if (currentSubsection === 'output_files' && line.match(/^\s*-\s+/)) {
           // Output file item (starts with '- ' and is indented)
           const file = line.replace(/^\s*-\s+/, '').trim();
-          if (result.current_task && file) {
+          if (result.current_task && typeof result.current_task === 'object' && file) {
             result.current_task.output_files?.push(file);
           }
         } else if (trimmedLine.match(/^\w+:/)) {
@@ -293,6 +326,75 @@ const AgentStatusPage = () => {
     }
 
     return result as AgentStatus;
+  };
+
+  // Helper function to parse the complex last_check_result section
+  const parseLastCheckResult = (lines: string[]): any => {
+    // This is a simplified parser for the last_check_result section
+    // which can have complex nested structures
+    let result = {};
+    let insideCheckInfo = false;
+    let checkInfoArray: any[] = [];
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmedLine = line.trim();
+
+      if (!trimmedLine) continue;
+
+      // Stop parsing if we reach a new top-level property
+      if (line && !line.match(/^\s+/) && !trimmedLine.startsWith('- ') && trimmedLine.includes(':')) {
+        break;
+      }
+
+      if (trimmedLine === 'check_info:') {
+        insideCheckInfo = true;
+        continue;
+      }
+
+      if (insideCheckInfo) {
+        if (line.match(/^\s*-\s+name:/)) {
+          // Start of a new check info object
+          const nameMatch = line.match(/name:\s*(.+)/);
+          if (nameMatch) {
+            checkInfoArray.push({ name: nameMatch[1].trim() });
+          }
+        } else if (checkInfoArray.length > 0) {
+          // Add properties to the last check info object
+          const currentObj = checkInfoArray[checkInfoArray.length - 1];
+          const propertyMatch = line.match(/^\s+(\w+):\s*(.*)/);
+          if (propertyMatch) {
+            const property = propertyMatch[1];
+            const value = propertyMatch[2].trim();
+
+            if (property === 'last_msg' || property === 'description') {
+              // Handle array values
+              currentObj[property] = [];
+            } else if (property === 'count_pass' || property === 'count_fail' || property === 'count_check') {
+              currentObj[property] = parseInt(value, 10);
+            } else {
+              currentObj[property] = value;
+            }
+          } else if (line.match(/^\s*-\s+/) && line.includes('last_msg:') || line.includes('description:')) {
+            // Handle array items for last_msg or description
+            const arrayMatch = line.match(/^\s*-\s+(.+)/);
+            if (arrayMatch) {
+              const currentObj = checkInfoArray[checkInfoArray.length - 1];
+              if (!currentObj.last_msg) currentObj.last_msg = [];
+              currentObj.last_msg.push(arrayMatch[1].trim());
+            }
+          }
+        }
+      } else if (trimmedLine.startsWith('check_pass:')) {
+        result = { ...result, check_pass: trimmedLine.substring('check_pass:'.length).trim() === 'true' };
+      }
+    }
+
+    if (checkInfoArray.length > 0) {
+      result = { ...result, check_info: checkInfoArray };
+    }
+
+    return result;
   };
 
   // Fetch status on component mount
@@ -314,11 +416,34 @@ const AgentStatusPage = () => {
     return Math.round((completedStages / totalStages) * 100);
   };
 
-  // Determine if a stage is completed (reached and a later stage has been reached)
+  // Determine if a stage is completed for progress calculation purposes
+  // This includes both reached stages and skipped stages
   const isStageCompleted = (stageIndex: number) => {
     if (!status || !status.stage_list) return false;
+
+    // Check if the process indicates all stages are completed
+    const processMatch = status.process?.match(/(\d+)\/(\d+)/);
+    if (processMatch) {
+      const completedCount = parseInt(processMatch[1], 10);
+      const totalCount = parseInt(processMatch[2], 10);
+
+      // If all stages are completed according to the process string
+      if (completedCount >= totalCount && completedCount > 0) {
+        // Then any stage that has reached=true or is_skipped=true is considered completed for progress
+        const stage = status.stage_list[stageIndex];
+        return stage?.reached === true || stage?.is_skipped === true;
+      }
+    }
+
+    // If we have a valid current_stage_index, use the original logic
     // A stage is completed if it's reached and there's at least one later stage that is also reached
-    return stageIndex < (status.current_stage_index || 0);
+    if (status.current_stage_index !== undefined && status.current_stage_index !== -1) {
+      return stageIndex < status.current_stage_index;
+    }
+
+    // Default case: if no current stage index is defined, check if the stage is reached or skipped
+    const stage = status.stage_list[stageIndex];
+    return stage?.reached === true || stage?.is_skipped === true;
   };
 
   // Get current stage if available
@@ -530,38 +655,47 @@ const AgentStatusPage = () => {
           <div className="bg-white rounded-2xl shadow-lg border border-slate-200 p-6 mb-6">
             <h2 className="text-xl font-bold text-slate-800 mb-4">Current Task</h2>
             <div className="bg-slate-50 p-4 rounded-lg">
-              <h3 className="font-semibold text-slate-800">{status.current_task.title}</h3>
-              <div className="mt-3">
-                <h4 className="font-medium text-slate-700 mb-2">Steps:</h4>
-                <ul className="list-disc pl-5 space-y-1">
-                  {status.current_task.description.map((step, index) => (
-                    <li key={index} className="text-slate-600">{step}</li>
-                  ))}
-                </ul>
-              </div>
-
-              {Object.keys(status.current_task.reference_files || {}).length > 0 && (
-                <div className="mt-4">
-                  <h4 className="font-medium text-slate-700 mb-2">Reference Files:</h4>
-                  <ul className="list-disc pl-5 space-y-1">
-                    {Object.entries(status.current_task.reference_files || {}).map(([file, status], index) => (
-                      <li key={index} className="text-slate-600">
-                        <span className="font-mono">{file}</span> - <span className={status === 'Not Read' ? 'text-orange-600' : 'text-green-600'}>{status}</span>
-                      </li>
-                    ))}
-                  </ul>
+              {typeof status.current_task === 'string' ? (
+                <div>
+                  <h3 className="font-semibold text-slate-800">{status.current_task}</h3>
+                  <p className="text-slate-600 mt-2">No active task details available.</p>
                 </div>
-              )}
+              ) : (
+                <>
+                  <h3 className="font-semibold text-slate-800">{status.current_task.title}</h3>
+                  <div className="mt-3">
+                    <h4 className="font-medium text-slate-700 mb-2">Steps:</h4>
+                    <ul className="list-disc pl-5 space-y-1">
+                      {status.current_task.description.map((step, index) => (
+                        <li key={index} className="text-slate-600">{step}</li>
+                      ))}
+                    </ul>
+                  </div>
 
-              {status.current_task.output_files && status.current_task.output_files.length > 0 && (
-                <div className="mt-4">
-                  <h4 className="font-medium text-slate-700 mb-2">Output Files:</h4>
-                  <ul className="list-disc pl-5 space-y-1">
-                    {status.current_task.output_files.map((file, index) => (
-                      <li key={index} className="text-slate-600 font-mono">{file}</li>
-                    ))}
-                  </ul>
-                </div>
+                  {Object.keys(status.current_task.reference_files || {}).length > 0 && (
+                    <div className="mt-4">
+                      <h4 className="font-medium text-slate-700 mb-2">Reference Files:</h4>
+                      <ul className="list-disc pl-5 space-y-1">
+                        {Object.entries(status.current_task.reference_files || {}).map(([file, fileStatus], index) => (
+                          <li key={index} className="text-slate-600">
+                            <span className="font-mono">{file}</span> - <span className={fileStatus === 'Not Read' ? 'text-orange-600' : 'text-green-600'}>{fileStatus}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {status.current_task.output_files && status.current_task.output_files.length > 0 && (
+                    <div className="mt-4">
+                      <h4 className="font-medium text-slate-700 mb-2">Output Files:</h4>
+                      <ul className="list-disc pl-5 space-y-1">
+                        {status.current_task.output_files.map((file, index) => (
+                          <li key={index} className="text-slate-600 font-mono">{file}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -594,7 +728,7 @@ const AgentStatusPage = () => {
                   <div>
                     <h3 className="font-semibold text-slate-800">{stage.title}</h3>
                     <div className="flex flex-wrap gap-2 mt-2">
-                      {isCompleted && (
+                      {isCompleted && !stage.is_skipped && (
                         <span className="px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded-full">Completed</span>
                       )}
                       {isInProgress && (
