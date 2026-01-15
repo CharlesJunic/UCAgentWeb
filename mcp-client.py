@@ -68,8 +68,7 @@ async def lifespan(app: FastAPI):
         # Uses the StreamableHttpTransport class to create a streamable HTTP connection object.
         transport = StreamableHttpTransport(url="http://127.0.0.1:5000/mcp")
         _client = Client(transport)  # Create a client instance using the transport object created above.
-        asyncio.create_task(_client.__aenter__())  # Asynchronously create and start the task to establish the client connection.
-        await asyncio.sleep(1)  # Wait for the connection to be established.
+        await _client.__aenter__()  # Properly await the client connection
         print(f"[{datetime.now().strftime('%H:%M:%S')}] Successfully connected to FastMCP server.")
     except Exception as e:
         # Error handling if the connection fails.
