@@ -99,7 +99,7 @@ start-mcp-client:
 			echo "ERROR: mcp-client.py not found in current directory"; \
 			exit 1; \
 		fi; \
-		cd $(CURRENT_DIR) && nohup python mcp-client.py > $(OUTPUT_DIR)/mcp_client.log 2>&1 & echo $$! > $(MCP_CLIENT_PID_FILE); \
+		cd $(CURRENT_DIR) && python mcp-client.py > $(OUTPUT_DIR)/mcp_client.log 2>&1 & echo $$! > $(MCP_CLIENT_PID_FILE); \
 		if [ $$! -gt 0 ]; then \
 			echo "MCP client service started with PID: $$(cat $(MCP_CLIENT_PID_FILE))"; \
 		else \
